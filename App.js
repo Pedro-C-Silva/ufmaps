@@ -1,30 +1,27 @@
-import React, { useEffect, useState } from 'react';
-import { StyleSheet, Text, View, Dimensions } from 'react-native';
+import React, { useEffect, useState, useRef } from 'react';
+import { StyleSheet, Text, View, Dimensions, TextInput, ScrollView, TouchableOpacity } from 'react-native';
 import MapView, { Marker } from 'react-native-maps';
 import * as Location from 'expo-location';
+import { Ionicons } from '@expo/vector-icons';
 
-// Coordenadas da UFPA para fácil referência
 const ufpaCoordinates = {
   latitude: -1.4756406985055783,
-  longitude: -48.45731971263614, // Corrigido: apenas um sinal de menos
-  latitudeDelta: 0.02, // Ajuste o delta conforme necessário para o zoom inicial
+  longitude: -48.45731971263614,
+  latitudeDelta: 0.02,
   longitudeDelta: 0.02,
 };
 
 export default function App() {
   const [location, setLocation] = useState(null);
-  // Iniciamos 'region' com as coordenadas da UFPA ou null se preferir que comece sem foco até obter a localização.
-  // Usar as coordenadas da UFPA para initialRegion no MapView é uma boa abordagem.
-  // O estado 'region' será atualizado assim que a localização do usuário for obtida.
   const [region, setRegion] = useState(null);
   const [errorMsg, setErrorMsg] = useState(null);
+  const mapRef = useRef(null); // Ref para o mapa
 
   useEffect(() => {
     (async () => {
       let { status } = await Location.requestForegroundPermissionsAsync();
       if (status !== 'granted') {
         setErrorMsg('Permissão de localização negada');
-        // Se a permissão for negada, podemos definir a região para UFPA como fallback
         setRegion(ufpaCoordinates);
         return;
       }
@@ -32,68 +29,76 @@ export default function App() {
       try {
         let currentLocation = await Location.getCurrentPositionAsync({});
         setLocation(currentLocation);
-        const userRegion = {
+        setRegion({
           latitude: currentLocation.coords.latitude,
           longitude: currentLocation.coords.longitude,
-          latitudeDelta: 0.01, // Zoom mais próximo para a localização do usuário
+          latitudeDelta: 0.01,
           longitudeDelta: 0.01,
-        };
-        setRegion(userRegion);
-
-        Location.watchPositionAsync({
-          accuracy: Location.Accuracy.High,
-          timeInterval: 1000, // 1 segundo
-          distanceInterval: 1, // 1 metro
-        }, (newLocation) => {
-          setLocation(newLocation);
-          // Atualiza a região para centralizar no usuário conforme ele se move
-          // Se você não quiser que o mapa siga o usuário automaticamente, pode comentar a linha setRegion abaixo.
-          setRegion({
-            latitude: newLocation.coords.latitude,
-            longitude: newLocation.coords.longitude,
-            latitudeDelta: 0.01, // Mantém o nível de zoom
-            longitudeDelta: 0.01,
-          });
         });
 
+        Location.watchPositionAsync(
+          {
+            accuracy: Location.Accuracy.High,
+            timeInterval: 1000,
+            distanceInterval: 1,
+          },
+          (newLocation) => {
+            setLocation(newLocation);
+          }
+        );
       } catch (error) {
-        console.error("Erro ao obter localização: ", error);
+        console.error('Erro ao obter localização: ', error);
         setErrorMsg('Erro ao obter localização. Mostrando localização padrão.');
-        setRegion(ufpaCoordinates); // Define para UFPA em caso de erro
+        setRegion(ufpaCoordinates);
       }
     })();
   }, []);
 
-  let displayText = 'Obtendo localização e carregando mapa...';
-  if (errorMsg) {
-    displayText = errorMsg;
-  }
+  const centralizarNoUsuario = () => {
+    if (mapRef.current && location) {
+      mapRef.current.animateToRegion({
+        latitude: location.coords.latitude,
+        longitude: location.coords.longitude,
+        latitudeDelta: 0.01,
+        longitudeDelta: 0.01,
+      }, 1000);
+    }
+  };
 
   return (
     <View style={styles.container}>
+      {/* Header com busca */}
+      <View style={styles.header}>
+        <Ionicons name="search" size={20} color="#fff" />
+        <TextInput
+          placeholder="Pesquise aqui"
+          placeholderTextColor="#ccc"
+          style={styles.searchInput}
+        />
+      </View>
+
+      {/* Filtros */}
+      <ScrollView horizontal showsHorizontalScrollIndicator={false} style={styles.filters}>
+        {['Pavilhões', 'Laboratórios', 'Bibliotecas', 'Cantinas'].map((item, index) => (
+          <TouchableOpacity key={index} style={styles.filterButton}>
+            <Text style={styles.filterText}>{item}</Text>
+          </TouchableOpacity>
+        ))}
+      </ScrollView>
+
+      {/* Mapa */}
       <MapView
+        ref={mapRef}
         style={styles.map}
-        // Define uma região inicial. O mapa tentará mostrar isso primeiro.
-        // Assim que 'region' no estado for atualizado com a localização do usuário,
-        // o atributo 'region' abaixo (se descomentado e usado) assumirá o controle.
-        initialRegion={ufpaCoordinates}
-        // Se você quiser que o mapa se mova dinamicamente com 'region' do estado:
-        region={region} // Se 'region' for null inicialmente, pode causar um flash. initialRegion lida com isso.
-        showsUserLocation={true} // Mostra o ponto azul padrão para a localização do usuário
+        initialRegion={region || ufpaCoordinates}
+        showsUserLocation={true}
       >
-        {/* Marcador da UFPA */}
         <Marker
-          coordinate={{
-            latitude: ufpaCoordinates.latitude,
-            longitude: ufpaCoordinates.longitude,
-          }}
+          coordinate={ufpaCoordinates}
           title="UFPA"
           description="Campus Belém"
-          pinColor="green" // Diferenciar o marcador da UFPA
+          pinColor="green"
         />
-
-        {/* Marcador para a localização do usuário (opcional, pois showsUserLocation já faz algo similar) */}
-        {/* Se você quiser um marcador personalizado para o usuário, pode usar este */}
         {location && (
           <Marker
             coordinate={{
@@ -101,14 +106,36 @@ export default function App() {
               longitude: location.coords.longitude,
             }}
             title="Você está aqui"
-            pinColor="blue" // Cor para o marcador do usuário
+            pinColor="blue"
           />
         )}
       </MapView>
-      {/* Exibe mensagem de carregamento/erro sobre o mapa, se necessário, ou em um local dedicado */}
-      {!region && ( // Mostra o texto apenas se a região ainda não foi definida (nem pelo usuário, nem pelo fallback)
+
+      {/* Botão de centralizar */}
+      <TouchableOpacity style={styles.centerButton} onPress={centralizarNoUsuario}>
+        <Ionicons name="locate" size={24} color="#fff" />
+      </TouchableOpacity>
+
+      {/* Footer */}
+      <View style={styles.footer}>
+        <View style={styles.footerItem}>
+          <Ionicons name="compass" size={20} color="#fff" />
+          <Text style={styles.footerText}>Explorar</Text>
+        </View>
+        <View style={styles.footerItem}>
+          <Ionicons name="bookmark" size={20} color="#fff" />
+          <Text style={styles.footerText}>Salvos</Text>
+        </View>
+        <View style={styles.footerItem}>
+          <Ionicons name="add-circle" size={20} color="#fff" />
+          <Text style={styles.footerText}>Contribuir</Text>
+        </View>
+      </View>
+
+      {/* Mensagem de carregamento */}
+      {!region && (
         <View style={styles.loadingContainer}>
-          <Text style={styles.loadingText}>{displayText}</Text>
+          <Text style={styles.loadingText}>{errorMsg || 'Obtendo localização...'}</Text>
         </View>
       )}
     </View>
@@ -116,29 +143,69 @@ export default function App() {
 }
 
 const styles = StyleSheet.create({
-  container: {
-    flex: 1,
+  container: { flex: 1, backgroundColor: '#121212' },
+  header: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    backgroundColor: '#1E1E1E',
+    paddingHorizontal: 10,
+    paddingVertical: 8,
+    marginTop: 30,
   },
+  searchInput: {
+    flex: 1,
+    backgroundColor: '#333',
+    marginLeft: 8,
+    padding: 6,
+    borderRadius: 8,
+    color: '#fff',
+  },
+  filters: {
+    flexGrow: 0,
+    paddingVertical: 6,
+    paddingHorizontal: 10,
+    backgroundColor: '#1E1E1E',
+  },
+  filterButton: {
+    backgroundColor: '#333',
+    paddingVertical: 6,
+    paddingHorizontal: 12,
+    borderRadius: 20,
+    marginRight: 8,
+  },
+  filterText: { color: '#fff', fontSize: 14 },
   map: {
     width: Dimensions.get('window').width,
-    height: Dimensions.get('window').height,
+    height: Dimensions.get('window').height - 180,
   },
-  // Estilo opcional para a mensagem de carregamento/erro
+  footer: {
+    flexDirection: 'row',
+    justifyContent: 'space-around',
+    backgroundColor: '#1E1E1E',
+    paddingVertical: 10,
+  },
+  footerItem: { alignItems: 'center' },
+  footerText: { color: '#fff', fontSize: 12, marginTop: 2 },
   loadingContainer: {
     position: 'absolute',
-    top: 0,
-    left: 0,
-    right: 0,
-    bottom: 0,
-    justifyContent: 'center',
-    alignItems: 'center',
-    backgroundColor: 'rgba(0,0,0,0.3)', // Fundo semi-transparente
+    top: 0, left: 0, right: 0, bottom: 0,
+    justifyContent: 'center', alignItems: 'center',
+    backgroundColor: 'rgba(0,0,0,0.4)',
   },
   loadingText: {
-    color: 'white',
-    fontSize: 18,
-    padding: 20,
+    color: '#fff', fontSize: 16,
     backgroundColor: 'rgba(0,0,0,0.7)',
-    borderRadius: 10,
-  }
+    padding: 10, borderRadius: 8,
+  },
+  centerButton: {
+    position: 'absolute',
+    bottom: 100,
+    right: 20,
+    backgroundColor: '#1E1E1E',
+    borderRadius: 30,
+    padding: 10,
+    elevation: 5,
+    zIndex: 999,
+  },
 });
+
